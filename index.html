@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Ambulance Dispatch — Route Optimization</title>
+<style>
+  :root {
+    --bg:       #0b0f1a;
+    --surface:  #111827;
+    --card:     #1a2235;
+    --border:   #263048;
+    --accent:   #3b82f6;
+    --accent2:  #10b981;
+    --danger:   #ef4444;
+    --amber:    #f59e0b;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --font:     'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header .logo {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  header .badge {
+    margin-left: auto;
+    font-size: 10px;
+    background: #1e3a5f;
+    color: var(--accent);
+    padding: 4px 10px;
+    border: 1px solid #2563eb55;
+    border-radius: 3px;
+    letter-spacing: 2px;
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    flex: 1;
+    gap: 0;
+  }
+
+  /* ── MAP PANEL ── */
+  #map-panel {
+    position: relative;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+
+  canvas#map {
+    display: block;
+    width: 100%;
+    height: calc(100vh - 54px);
+  }
+
+  .map-toolbar {
+    position: absolute;
+    top: 14px; left: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .map-toolbar button {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 11px;
+    letter-spacing: 1px;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: border-color .15s, background .15s;
+  }
+  .map-toolbar button:hover { border-color: var(--accent); background: #1e3a5f44; }
+  .map-toolbar button.active { border-color: var(--accent); color: var(--accent); background: #1e3a5f55; }
+
+  .algo-toggle {
+    position: absolute;
+    bottom: 14px; left: 14px;
+    display: flex;
+    gap: 8px;
+  }
+  .algo-toggle button {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font);
+    font-size: 11px;
+    letter-spacing: 1px;
+    padding: 7px 16px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all .15s;
+  }
+  .algo-toggle button.active {
+    border-color: var(--accent2);
+    color: var(--accent2);
+    background: #064e3b44;
+  }
+
+  .map-hint {
+    position: absolute;
+    bottom: 14px; right: 14px;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 3px;
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow-y: auto;
+  }
+
+  .section {
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+  .section-title {
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* Traffic slider */
+  .traffic-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+  }
+  .traffic-row input[type=range] {
+    flex: 1;
+    accent-color: var(--amber);
+  }
+  #traffic-label {
+    min-width: 30px;
+    color: var(--amber);
+    text-align: right;
+  }
+
+  /* Ambulance list */
+  .amb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    margin-bottom: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .amb-row:hover { border-color: #3b82f655; }
+  .amb-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .amb-dot.available { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+  .amb-dot.busy      { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+  .amb-name { flex: 1; }
+  .amb-status { font-size: 9px; letter-spacing: 1px; color: var(--muted); }
+
+  /* Log */
+  #dispatch-log {
+    flex: 1;
+    font-size: 10px;
+    line-height: 1.8;
+    color: var(--muted);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  #dispatch-log .log-entry { padding: 2px 0; }
+  #dispatch-log .log-entry.ok  { color: var(--accent2); }
+  #dispatch-log .log-entry.err { color: var(--danger); }
+  #dispatch-log .log-entry.info{ color: var(--accent); }
+
+  /* Stats */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stat-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px;
+  }
+  .stat-label { font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-bottom: 4px; }
+  .stat-val   { font-size: 20px; font-weight: 700; }
+  .stat-val.blue   { color: var(--accent); }
+  .stat-val.green  { color: var(--accent2); }
+  .stat-val.amber  { color: var(--amber); }
+  .stat-val.red    { color: var(--danger); }
+
+  /* Path result */
+  #path-result {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.8;
+    min-height: 80px;
+  }
+  #path-result .path-nodes { color: var(--accent); }
+  #path-result .path-cost  { color: var(--accent2); margin-top: 4px; }
+  #path-result .path-algo  { color: var(--amber); font-size: 10px; letter-spacing: 1px; }
+  #path-result .placeholder { color: var(--muted); }
+
+  /* Complexity table */
+  .complexity-table {
+    width: 100%;
+    font-size: 10px;
+    border-collapse: collapse;
+  }
+  .complexity-table th {
+    color: var(--muted);
+    font-weight: normal;
+    letter-spacing: 1px;
+    padding: 4px 0;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .complexity-table td {
+    padding: 5px 0;
+    border-bottom: 1px solid #1e293b;
+  }
+  .complexity-table .hl { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">&#9651; EMS</div>
+  <h1>SMART AMBULANCE DISPATCH SYSTEM</h1>
+  <div class="badge">DAA PROJECT</div>
+</header>
+
+<main>
+  <!-- MAP -->
+  <div id="map-panel">
+    <canvas id="map"></canvas>
+
+    <div class="map-toolbar">
+      <button id="btn-emergency" class="active">&#9888; PLACE EMERGENCY</button>
+      <button id="btn-dispatch">&#9654; AUTO DISPATCH</button>
+      <button id="btn-reset">&#8635; RESET</button>
+    </div>
+
+    <div class="algo-toggle">
+      <button id="btn-dijkstra">DIJKSTRA</button>
+      <button id="btn-astar" class="active">A* SEARCH</button>
+    </div>
+
+    <div class="map-hint">CLICK MAP TO PLACE EMERGENCY</div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+
+    <!-- Traffic -->
+    <div class="section">
+      <div class="section-title">Traffic Multiplier</div>
+      <div class="traffic-row">
+        <span>LOW</span>
+        <input type="range" id="traffic" min="1" max="3" step="0.1" value="1">
+        <span>HIGH</span>
+        <span id="traffic-label">1.0×</span>
+      </div>
+    </div>
+
+    <!-- Ambulances -->
+    <div class="section">
+      <div class="section-title">Ambulance Fleet</div>
+      <div id="amb-list"></div>
+    </div>
+
+    <!-- Path Result -->
+    <div class="section">
+      <div class="section-title">Optimal Route</div>
+      <div id="path-result">
+        <span class="placeholder">Place an emergency on the map to begin dispatch simulation.</span>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="section">
+      <div class="section-title">Statistics</div>
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-label">DISPATCHES</div>
+          <div class="stat-val blue" id="stat-dispatches">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">AVG ETA (s)</div>
+          <div class="stat-val green" id="stat-eta">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">NODES VISITED</div>
+          <div class="stat-val amber" id="stat-nodes">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">ALGORITHM</div>
+          <div class="stat-val" id="stat-algo" style="font-size:13px;color:var(--accent2)">A*</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Complexity -->
+    <div class="section">
+      <div class="section-title">Algorithm Complexity</div>
+      <table class="complexity-table">
+        <tr><th>ALGO</th><th>TIME</th><th>SPACE</th><th>OPTIMAL</th></tr>
+        <tr>
+          <td>Dijkstra</td>
+          <td class="hl">O((V+E)lgV)</td>
+          <td>O(V)</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td>A* Search</td>
+          <td class="hl">O(E lg V)*</td>
+          <td>O(V)</td>
+          <td>Yes*</td>
+        </tr>
+      </table>
+      <p style="font-size:9px;color:var(--muted);margin-top:8px;line-height:1.6">
+        *A* uses Euclidean heuristic. Admissible &amp; consistent → optimal.
+        Typically faster than Dijkstra due to guided search.
+      </p>
+    </div>
+
+    <!-- Log -->
+    <div class="section" style="flex:1">
+      <div class="section-title">Dispatch Log</div>
+      <div id="dispatch-log">
+        <div class="log-entry info">&gt; SYSTEM INITIALIZED</div>
+        <div class="log-entry">&gt; Awaiting emergency signal...</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="algorithms.js"></script>
+<script src="graph.js"></script>
+<script>
+// ─── State ────────────────────────────────────────────────────────────────
+const state = {
+  emergency: null,       // { x, y, nodeId }
+  selectedAlgo: 'astar',
+  traffic: 1.0,
+  dispatching: false,
+  animPath: [],
+  animProgress: 0,
+  animFrame: null,
+  stats: { dispatches: 0, totalEta: 0, totalNodes: 0 },
+  ambulances: [
+    { id: 'AMB-01', nodeId: 'A1', available: true,  label: 'Alpha-01' },
+    { id: 'AMB-02', nodeId: 'A2', available: true,  label: 'Beta-02'  },
+    { id: 'AMB-03', nodeId: 'A3', available: false, label: 'Gamma-03' },
+  ],
+  result: null
+};
+
+// ─── Canvas Setup ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('map');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  draw();
+}
+window.addEventListener('resize', resize);
+
+// ─── Graph Helpers ─────────────────────────────────────────────────────────
+function getGraph() {
+  return CityGraph.buildGraph(state.traffic);
+}
+
+function nodeById(id) {
+  return CityGraph.CITY_GRAPH.nodes.find(n => n.id === id);
+}
+
+function scaleCoord(node) {
+  // Scale logical coords (0-600 x 0-480) to canvas
+  const pad = 60;
+  const scaleX = (canvas.width  - pad * 2) / 620;
+  const scaleY = (canvas.height - pad * 2) / 480;
+  return {
+    x: pad + node.x * scaleX,
+    y: pad + node.y * scaleY
+  };
+}
+
+function nearestNode(cx, cy) {
+  let best = null, bestD = Infinity;
+  for (const node of CityGraph.CITY_GRAPH.nodes) {
+    const { x, y } = scaleCoord(node);
+    const d = Math.hypot(cx - x, cy - y);
+    if (d < bestD) { bestD = d; best = node; }
+  }
+  return bestD < 80 ? best : null;
+}
+
+// ─── Draw ─────────────────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background grid
+  ctx.strokeStyle = '#1a2235';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+
+  const { graph } = getGraph();
+
+  // Draw edges
+  const drawn = new Set();
+  for (const [from, to, w] of CityGraph.CITY_GRAPH.edges) {
+    const key = [from, to].sort().join('-');
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+
+    const a = scaleCoord(nodeById(from));
+    const b = scaleCoord(nodeById(to));
+
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = '#1e3a5f55';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Edge weight label
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    ctx.fillStyle = '#334155';
+    ctx.font = '9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(w * state.traffic) + 's', mx, my - 3);
+  }
+
+  // Draw animated path
+  if (state.result && state.result.path.length > 1) {
+    const pts = state.result.path.map(id => scaleCoord(nodeById(id)));
+    const total = pts.length - 1;
+    const progress = Math.min(state.animProgress, total);
+
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = state.selectedAlgo === 'astar' ? '#10b981' : '#3b82f6';
+    ctx.strokeStyle = state.selectedAlgo === 'astar' ? '#10b981' : '#3b82f6';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath();
+
+    for (let i = 0; i < Math.floor(progress); i++) {
+      if (i === 0) ctx.moveTo(pts[0].x, pts[0].y);
+      else ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    // Partial segment
+    if (progress < total) {
+      const frac = progress - Math.floor(progress);
+      const pi = Math.floor(progress);
+      ctx.lineTo(
+        pts[pi].x + (pts[pi + 1].x - pts[pi].x) * frac,
+        pts[pi].y + (pts[pi + 1].y - pts[pi].y) * frac
+      );
+    } else {
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw nodes
+  for (const node of CityGraph.CITY_GRAPH.nodes) {
+    const { x, y } = scaleCoord(node);
+    let color, size, label;
+
+    if (node.type === 'hospital') {
+      color = '#f59e0b'; size = 14; label = '✚';
+    } else if (node.type === 'base') {
+      const amb = state.ambulances.find(a => a.nodeId === node.id);
+      color = amb?.available ? '#10b981' : '#ef4444';
+      size = 12; label = '⚑';
+    } else {
+      color = '#334155'; size = 7; label = null;
+    }
+
+    // Highlight visited nodes
+    if (state.result?.visited?.includes(node.id)) {
+      ctx.beginPath();
+      ctx.arc(x, y, size + 6, 0, Math.PI * 2);
+      ctx.fillStyle = (state.selectedAlgo === 'astar' ? '#10b98122' : '#3b82f622');
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    if (label) {
+      ctx.fillStyle = '#0b0f1a';
+      ctx.font = `bold ${size + 2}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, y);
+    }
+
+    // Node label
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '10px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(node.label, x, y + size + 4);
+  }
+
+  // Draw ambulances
+  for (const amb of state.ambulances) {
+    if (!amb.available) continue;
+    const node = nodeById(amb.nodeId);
+    if (!node) continue;
+    const { x, y } = scaleCoord(node);
+
+    ctx.fillStyle = '#10b981';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('🚑', x, y - 14);
+
+    ctx.fillStyle = '#10b981';
+    ctx.font = '9px Courier New';
+    ctx.textBaseline = 'top';
+    ctx.fillText(amb.id, x, y - 26);
+  }
+
+  // Draw emergency
+  if (state.emergency) {
+    const node = nodeById(state.emergency.nodeId);
+    const { x, y } = scaleCoord(node);
+
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    ctx.beginPath();
+    ctx.arc(x, y, 20 + pulse * 10, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(239,68,68,${0.4 + pulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ef4444';
+    ctx.font = '20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🔴', x, y - 18);
+
+    ctx.fillStyle = '#fca5a5';
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillText('EMERGENCY', x, y + 20);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// ─── Dispatch Logic ────────────────────────────────────────────────────────
+function doDispatch() {
+  if (!state.emergency) {
+    addLog('ERROR: No emergency location set.', 'err');
+    return;
+  }
+
+  const { graph, coords } = getGraph();
+  const avail = state.ambulances.filter(a => a.available);
+
+  if (!avail.length) {
+    addLog('ERROR: No ambulances available.', 'err');
+    return;
+  }
+
+  let result;
+  let algoName;
+
+  if (state.selectedAlgo === 'astar') {
+    result = Algorithms.dispatchOptimal(avail, state.emergency.nodeId, graph, coords);
+    algoName = 'A*';
+  } else {
+    // Dijkstra: run from each available ambulance, pick nearest
+    let best = null;
+    for (const amb of avail) {
+      const { dist, prev, visited } = Algorithms.dijkstra(graph, amb.nodeId);
+      const cost = dist.get(state.emergency.nodeId);
+      if (cost < Infinity && (!best || cost < best.cost)) {
+        const path = Algorithms.reconstructPath(prev, amb.nodeId, state.emergency.nodeId);
+        best = { ambulanceId: amb.id, path, cost, visited };
+      }
+    }
+    result = best;
+    algoName = 'Dijkstra';
+  }
+
+  if (!result || !result.path.length) {
+    addLog('ERROR: No reachable path found.', 'err');
+    return;
+  }
+
+  state.result = result;
+  state.animProgress = 0;
+
+  // Animate path
+  if (state.animFrame) cancelAnimationFrame(state.animFrame);
+  const duration = 1200;
+  const start = performance.now();
+  const totalSegs = result.path.length - 1;
+
+  function animStep(now) {
+    const t = Math.min((now - start) / duration, 1);
+    state.animProgress = t * totalSegs;
+    if (t < 1) state.animFrame = requestAnimationFrame(animStep);
+  }
+  state.animFrame = requestAnimationFrame(animStep);
+
+  // Update UI
+  const pathStr = result.path.join(' → ');
+  const eta = Math.round(result.cost);
+
+  document.getElementById('path-result').innerHTML = `
+    <div class="path-algo">${algoName} ALGORITHM</div>
+    <div style="margin:6px 0;font-size:10px;color:#64748b">DISPATCHING: ${result.ambulanceId}</div>
+    <div class="path-nodes" style="font-size:10px;word-break:break-all">${pathStr}</div>
+    <div class="path-cost">ETA: ${eta}s &nbsp;|&nbsp; ${result.path.length - 1} hops &nbsp;|&nbsp; ${result.visited.length} nodes visited</div>
+  `;
+
+  // Stats
+  state.stats.dispatches++;
+  state.stats.totalEta += eta;
+  state.stats.totalNodes += result.visited.length;
+  document.getElementById('stat-dispatches').textContent = state.stats.dispatches;
+  document.getElementById('stat-eta').textContent = Math.round(state.stats.totalEta / state.stats.dispatches);
+  document.getElementById('stat-nodes').textContent = result.visited.length;
+  document.getElementById('stat-algo').textContent = algoName;
+
+  // Mark ambulance busy temporarily
+  const amb = state.ambulances.find(a => a.id === result.ambulanceId);
+  if (amb) {
+    amb.available = false;
+    renderAmbList();
+    setTimeout(() => { amb.available = true; renderAmbList(); addLog(`${amb.id} returned to base.`, 'info'); }, eta * 80);
+  }
+
+  addLog(`DISPATCH OK — ${result.ambulanceId} via ${algoName}`, 'ok');
+  addLog(`Route: ${pathStr}`, '');
+  addLog(`ETA: ${eta}s | Nodes: ${result.visited.length}`, 'info');
+}
+
+// ─── UI Helpers ───────────────────────────────────────────────────────────
+function addLog(msg, type = '') {
+  const log = document.getElementById('dispatch-log');
+  const el = document.createElement('div');
+  el.className = `log-entry ${type}`;
+  const t = new Date().toLocaleTimeString('en', { hour12: false });
+  el.textContent = `[${t}] ${msg}`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderAmbList() {
+  const list = document.getElementById('amb-list');
+  list.innerHTML = state.ambulances.map(a => `
+    <div class="amb-row">
+      <div class="amb-dot ${a.available ? 'available' : 'busy'}"></div>
+      <div class="amb-name">${a.id}<br><span style="font-size:9px;color:var(--muted)">${nodeById(a.nodeId)?.label}</span></div>
+      <div class="amb-status">${a.available ? 'AVAILABLE' : 'DISPATCHED'}</div>
+    </div>
+  `).join('');
+}
+
+// ─── Events ───────────────────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const node = nearestNode(mx, my);
+  if (node && node.type === 'road') {
+    state.emergency = { nodeId: node.id };
+    state.result = null;
+    addLog(`Emergency at: ${node.label} (${node.id})`, 'err');
+    document.getElementById('path-result').innerHTML =
+      `<span class="placeholder">Emergency set at ${node.label}. Click AUTO DISPATCH.</span>`;
+  } else if (!node) {
+    addLog('Click a road intersection to place emergency.', '');
+  }
+});
+
+document.getElementById('btn-dispatch').addEventListener('click', doDispatch);
+document.getElementById('btn-emergency').addEventListener('click', () => {
+  addLog('Click a road node on the map to place emergency.', 'info');
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  state.emergency = null;
+  state.result = null;
+  state.animProgress = 0;
+  state.ambulances.forEach(a => a.available = a.id !== 'AMB-03');
+  renderAmbList();
+  document.getElementById('path-result').innerHTML =
+    '<span class="placeholder">Place an emergency on the map to begin.</span>';
+  addLog('System reset.', 'info');
+});
+
+document.getElementById('btn-dijkstra').addEventListener('click', () => {
+  state.selectedAlgo = 'dijkstra';
+  document.getElementById('btn-dijkstra').classList.add('active');
+  document.getElementById('btn-astar').classList.remove('active');
+  document.getElementById('stat-algo').textContent = 'Dijkstra';
+  addLog('Algorithm switched to Dijkstra.', 'info');
+});
+document.getElementById('btn-astar').addEventListener('click', () => {
+  state.selectedAlgo = 'astar';
+  document.getElementById('btn-astar').classList.add('active');
+  document.getElementById('btn-dijkstra').classList.remove('active');
+  document.getElementById('stat-algo').textContent = 'A*';
+  addLog('Algorithm switched to A*.', 'info');
+});
+
+document.getElementById('traffic').addEventListener('input', e => {
+  state.traffic = parseFloat(e.target.value);
+  document.getElementById('traffic-label').textContent = state.traffic.toFixed(1) + '×';
+  addLog(`Traffic multiplier: ${state.traffic.toFixed(1)}×`, 'info');
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────
+renderAmbList();
+resize();
+addLog('Graph loaded: ' + CityGraph.CITY_GRAPH.nodes.length + ' nodes, ' + CityGraph.CITY_GRAPH.edges.length + ' edges.', 'info');
+</script>
+</body>
+</html>
